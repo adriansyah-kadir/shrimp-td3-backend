@@ -2,6 +2,7 @@ from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from datetime import datetime
+from water_env3 import WaterEnv
 import pandas as pd
 import requests
 
@@ -12,8 +13,9 @@ def timestamp(date: str, time: str):
 
 class StateData:
     def __init__(self) -> None:
+        self.env = WaterEnv()
         self.google_cred = service_account.Credentials.from_service_account_file(
-            "/home/adrian/Projects/penelitian1/model3/nodal-magnet-464414-h8-94a5c07b31e8.json",
+            "/home/aldo/Work/shrimp-td3-backend/nodal-magnet-464414-h8-bc57f1e4d322.json",
             scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
         )
         self.google_req = Request()
@@ -36,10 +38,10 @@ class StateData:
         values = result[1:]
         df = pd.DataFrame(values, columns=columns)
         df["datetime"] = pd.to_datetime(
-            df["Timestamp"] + " " + df["Jam"], format="%d/%m/%Y %H.%M.%S"
+            df["Timestamp"] + " " + df["Jam"], format="%d/%m/%Y %H.%M.%S", errors="coerce",
         )
         df["timestamp"] = df["datetime"].astype(int) // 10**6  # convert ns → ms
-        df["temp"] = df["Suhu SHT31 (°C)"].astype(float)
+        df["temp"] = df["Suhu DS18B20 (°C)"].astype(float)
         df["pH"] = df["pH"].astype(float)
         df["DO"] = df["DO (mg/L)"].astype(float)
         return df[["timestamp", "temp", "pH", "DO"]]  # pyright: ignore
@@ -52,12 +54,17 @@ class StateData:
         values = result[1:]
         df = pd.DataFrame(values, columns=columns)
         df["datetime"] = pd.to_datetime(
-            df["Tanggal dan waktu"] + " " + df["Jam"], format="%d/%m/%Y %H.%M.%S"
+            df["Tanggal dan waktu"] + " " + df["Jam"], format="%d/%m/%Y %H.%M.%S", errors="coerce"
         )
         df["timestamp"] = df["datetime"].astype(int) // 10**6  # convert ns → ms
-        df["sal"] = df["tds"].astype(float)
-        df["nh3"] = df["nh3_voltage"].astype(float)
+        df["sal"] = df["konduktivitas"].astype(float) * 0.0008
+        df["nh3"] = df['nh3_voltage'].astype(float)
         df["turb"] = df["turbidity_voltage"].astype(float)
+        # df['turb'] = (
+        #     -1120.4 * (df['turbidity_voltage'].astype(float) ** 2)
+        #     + 5742.3 * df['turbidity_voltage'].astype(float)
+        #     - 4352.9
+        # )
         return df[["timestamp", "sal", "nh3", "turb"]]  # pyright: ignore
 
     def read(self) -> pd.DataFrame:
@@ -72,4 +79,8 @@ class StateData:
             df2["pH"] = df1["pH"]
             df2["DO"] = df1["DO"]
             df1 = df2
-        return df1[["timestamp", "temp", "sal", "turb", "pH", "DO", "nh3"]]
+        result = df1[["timestamp", "temp", "sal", "turb", "pH", "DO", "nh3"]]
+        print(result.tail(5))
+        result[["temp", "sal", "turb", "pH", "DO", "nh3"]] = result[["temp", "sal", "turb", "pH", "DO", "nh3"]].clip(self.env.min_space, self.env.max_space)
+        result.dropna()
+        return result
